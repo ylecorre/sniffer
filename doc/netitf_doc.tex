@@ -1,0 +1,305 @@
+\documentclass[a4paper]{hitec}
+\author{Yann Le Corre}
+\title{NETITF user's manual}
+% \company{}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{tabularx}
+
+\newcommand{\signal}[1]{\textbf{#1}}
+
+\begin{document}
+\maketitle
+%Copyright Yann Le Corre, 2014. All rights reserved.
+
+
+
+\section{Revision History}
+The following table shows the revision history for this document.
+
+\ \\
+\begin{tabularx}{\linewidth}{ccX}
+	\hline
+	Date & Version & Revision \\
+	\hline
+	06/02/2014 & 1.0 & Initial release. \\
+	06/03/2014 & 1.1 & Corrected typos. \\
+	\hline
+\end{tabularx}
+
+
+
+\section{Summary}
+
+The NETITF block implements a data communcation between a design implemented in an FPGA and a computer through the ethernet interface. The main benefits are:
+
+\begin{itemize}
+	\item High throughput (up to 100 Mbps when connected LAN8720A ethernet PHY)
+	\item Full-duplex communication
+	\item Easy integration into design thanks to the FIFO-like interface
+	\item Easy communication with the application through sockets
+	\item Low resource usage
+\end{itemize}
+
+The NETITF block is simply instanciated in the VHDL database of the design. It adds 6 additional top-level IOs that are to be connected to the PHY chip (typically a LAN8720A). The application transmits and receives data through the dedicated FIFO-like interfaces.
+
+The IPv4 parameters are set through the ports \signal{mac}, \signal{ip} and \signal{udpPort}. They must be static.
+
+The generic \signal{UDP\_PAYLOAD\_LENGTH} sets the size of the UDP packet that will be transmitted by the application to the outside world. It should be adapted to the required latency and throughput.
+
+
+
+\section{Clocking}
+
+The block is fully synchhronous and is clocked by an unique 100 MHz, 50\% duty-cycle clock. All internal registers are active on the rising edge of the clock. All inputs are assumed to be in \signal{clk} clock domain.
+
+
+
+\section{Port signals}
+
+\ \\
+\begin{tabularx}{\linewidth}{llX}
+	\hline
+	Name & Type & Function \\
+	\hline
+	clk              & std\_logic                      & main clock \\
+	mac              & byteVector(0 to 5)              & device MAC address \\
+	ip               & byteVector(0 to 3)              & device IP address \\
+	udpPort          & byteVector(0 to 1)              & UDP port \\
+	rmiiRn           & std\_logic                      & RMII reset, active low \textsuperscript{(1)} \\
+	rmiiRxdIn        & std\_logic\_vector(1 downto 0)  & RMII data receive signal, from PHY to design  \textsuperscript{(1)} \\
+	rmiiRxdEn        & std\_logic                      & RMII \signal{rxd} enable signal. \signal{rxd} will be pulled up when asserted. \textsuperscript{(1)} \\
+	rmiiCrsIn        & std\_logic                      & asserted during a RX frame \textsuperscript{(1)} \\
+	rmiiRefClk       & std\_logic                      & RMII reference clock (50 MHz) \textsuperscript{(1)} \\
+	rmiiTxd          & std\_logic\_vector(1 downto 0)  & RMII data transmit signal, from design to PHY \textsuperscript{(1)} \\
+	rmiiTxen         & std\_logic                      & asserted during a TX frame \textsuperscript{(1)} \\
+	txFifoWr         & std\_logic                      & asserted to write data in the transmit FIFO \\
+	txFifoData       & std\_logic\_vector(7 downto 0)  & data byte to transmit \\
+	txFifoFull       & std\_logic                      & asserted when transmit FIFO is full \\
+	rxFifoRd         & std\_logic                      & asserted to read data from the receive FIFO \\
+	rxFifoData       & std\_logic\_vector(7 downto 0)  & received data byte \\
+	rxFifoEmpty      & std\_logic                      & asserted when receive FIFO is empty \\
+	rxFifoFull       & std\_logic                      & asserted when receive FIFO is full \\
+\end{tabularx}
+
+\ \\
+\textsuperscript{(1)}: All those signals must be propagated to the top-level of the design. They connect to the PHY chip.
+
+
+
+\section{Sending data}
+
+Data to be transmitted are simply written in the TX fifo by asserting \signal{txFifoWr} for one clock period while presenting data to \signal{txFifoData}. Once \signal{UDP\_PAYLOAD\_LENGTH} bytes have been accumulated in the TX fifo, the transmit of an UDP packet is triggered. The TX fifo can still be written with new data with the UDP packet is transmitted.
+
+\signal{txFifoFull} is asserted when the TX fifo is full whereas \signal{txFifoEmpty} is asserted when the TX fifo is empty.
+
+TODO: Add a timing waveform
+
+
+
+\section{Receiving data}
+
+Received data are stored by bytes in the RX fifo. They can be read by the application by asserting \signal{rxFifoRd} for one clock period.
+
+\signal{rxFifoFull} is asserted when the RX fifo is full whereas \signal{rxFifoEmpty} is asserted when the RX fifo is empty.
+
+TODO: Add a timing waveform
+
+
+
+\section{Electrical connections to PHY}
+
+TODO: add a nice picture showing electrical connnections with PHY
+
+
+
+\section{Communication parameters}
+
+MAC address is made of 6 bytes. It is set at compilation time and is static (i.e. it must be connected to a constant signal) and must be unique on the network your device will be connected to.
+
+MAC address can be globally unique or locally administrated. See with your network administrator to choose one compatible with your network.
+
+For example, if the MAC-48 address is 00:23:ae:73:91:ef, then \signal{mac} must be driven by:
+
+\begin{lstlisting}
+	mac(0) <= x"00";
+	mac(1) <= x"23";
+	mac(2) <= x"ae";
+	mac(3) <= x"73";
+	mac(4) <= x"91";
+	mac(5) <= x"ef";
+\end{lstlisting}
+
+or, alternatively:
+
+\begin{lstlisting}
+	mac <= (x"00", x"23, x"ae", x"73", x"91", x"ef");
+\end{lstlisting}
+
+IP address is made of 4 bytes. It is set at compilation time and is static (i.e. it must be connected to constant signal) and must be unique on the network your device will be connected to.
+
+IP addresses are usually dynamically assigned using DHCP. However, in order to keep both the complexity and the resource usage low, it is statically allocated. See with your network administrator to get a correct IP address.
+
+For example, if the IP address 192.168.0.4, then \signal{ip} must be driven by:
+
+\begin{lstlisting}
+	ip(0) <= 192;
+	ip(1) <= 168;
+	ip(2) <= 0;
+	ip(3) <= 4;
+\end{lstlisting}
+
+or, alternatively:
+
+\begin{lstlisting}
+	ip <= (192, 168, 0, 4);
+\end{lstlisting}
+
+Please note, that, unlike to the MAC address and UDP port, \signal{ip} fields are integers, not std\_logic\_vector(7 downto 0).
+
+The UDP port is a 16-bit word. Any high-value should generally work provided it is not used by another service. See with your network administrator to get a correct one.
+
+For example, if the UDP port is 56789 then \signal{udpPort} must be driven by:
+
+\begin{lstlisting}
+	udpPort(0) <= x"dd";
+	udpPort(1) <= x"d5";
+\end{lstlisting}
+
+or alternatively:
+
+\begin{lstlisting}
+	udpPort <= (x"dd", x"d5");
+\end{lstlisting}
+
+
+
+\section{Resource usage}
+
+When instanciated in a Artix7 100-T FPGA, a typical resource usage would be:
+
+\ \\
+\begin{center}
+	\begin{tabular}{|l|l|}
+		\hline
+		Ref Name & Used \\
+		\hline
+		LUT6     &  306 \\
+		FDRE     &  283 \\
+		LUT5     &  115 \\
+		LUT3     &  101 \\
+		LUT4     &   91 \\
+		LUT2     &   71 \\
+		FDSE     &   32 \\
+		CARRY4   &   15 \\
+		LUT1     &    8 \\
+		OBUF     &    7 \\
+		MUXF7    &    4 \\
+		IBUF     &    4 \\
+		OBUFT    &    3 \\
+		FIFO18E1 &    2 \\
+		SRL16E   &    1 \\
+		BUFG     &    1 \\
+		\hline
+	\end{tabular}
+\end{center}
+
+
+
+\section{Back-end}
+
+Back-end (i.e. synthesis and routing) should be simple. The only required constraints are the clock frequency and the input/output pin locations.
+
+
+
+\section{Implementing communication on the PC}
+
+The PC and the device must be connected on the same network. Communication is handled by sockets. Any programmation language that implements sockets should work fine.
+
+\subsection{PC to device} 
+
+The following Python snippet shows how to send data from the PC to the device:
+\begin{lstlisting}
+	import socket
+
+	DEVICE_IP = "192.168.0.8"
+	UDP_PORT = 56789
+	dataToSend = [0x12, 0x34, 0x56, 0x78]
+
+	sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+	sock.sendto(bytes(dataToSend), (DEVICE_IP, UDP_PORT))
+\end{lstlisting}
+
+\subsection{device to PC}
+
+The following Python snippet shows how to receive data sent by the device to the PC. 
+\begin{lstlisting}
+	import socket
+
+	PC_IP = "192.168.0.2"
+	UDP_PORT = 56789
+
+	sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+	sock.bind((PC_IP, self.port))
+	data = sock.recv(1024)
+\end{lstlisting}
+
+
+
+\section{Compilation}
+
+The block RTL is written in VHDL. The code corresponding to the actual interface complies to VHDL-93 while the testbenches and the behavioural code used some features from VHDL-2002 (i.e. protected types).
+
+The interface is described in the following VHDL files, listed in compilation order:
+
+\ \\
+\begin{tabularx}{\linewidth}{|lX|}
+	\hline
+	File name & Description \\
+	\hline
+	types\_pkg.vhd    & Declares byteVector and IntegerVector types \\
+	fifoXilinx.vhd    & Wraps Xilinx FIFO primitive \\
+	rmiiClk.vhd       & Generate RMII reference clock \\
+	rmiiTx.vhd        & RMII TX \\
+	crc32.vhd         & ethernet CRC32 implementation \\
+	ipChecksum.vhd    & IP checksum implementation \\
+	rxCtl.vhd         & TX frame generation. Encapsulate data in UDP/IPv4/ethernet frame. Generates also gratuitous ARP packets. \\
+	txArbitrator.vhd  & Decides when to send an UDP packet and when to send an ARP packet. \\
+	tx.vhd            & top-level for TX \\
+	rmiiRx.vhd        & RMII RX \\
+	txCtl.vhd         & RX frame decoding. Extract data from an UDP/IPv4/ethernet incoming packet and communication parameters from an ARP packet\\
+	rx.vhd            & top-level for RX \\
+	netItf.vhd        & top-level for interface \\
+	\hline
+\end{tabularx}
+
+\ \\
+The utility files are described in the following VHDL files, listed in compilation order:
+
+\ \\
+\begin{tabularx}{\linewidth}{|lX|}
+	\hline
+	File name & Description \\
+	\hline
+	packet\_pkg.vhd  & Allow easy manipulation of ethernet/ARP/IPv4/UDP packets \\
+	pcap\_pkg.vhd    & Store and read packets from pcap files (see \textbf{tcpdump}) \\
+	rmii\_pkg.vhd    & Implements communication through the RMII interface \\
+	lan8720.vhd      & Simulation model of PHY lan8720. Does not model the configuration registers. \\
+	\hline
+\end{tabularx}
+
+\ \\
+A testbench is provided to show how the interface can be instanciated in a design. It is also used to demonstrate the communication throughtput. The VHDL files are listed, in compilation order, in the following table:
+
+\ \\
+\begin{tabularx}{\linewidth}{|lX|}
+	\hline
+	File name & Description \\
+	\hline
+	controller.vhd       & Implements decoding of commands sent from PC to design. \\
+	stream.vhd           & Implements generation of stream data sent from the design to the PC. \\
+	netitf\_test\_tb.vhd & Instanciates stream generation and interface. \\
+	\hline
+\end{tabularx}
+
+\end{document}
